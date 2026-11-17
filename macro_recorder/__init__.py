@@ -1,0 +1,1 @@
+"""Macro Recorder Pro — пакет приложения."""

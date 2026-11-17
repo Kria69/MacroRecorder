@@ -1,0 +1,4 @@
+PyQt6>=6.5
+pywin32>=306
+keyboard>=0.13
+mouse>=0.7
