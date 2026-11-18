@@ -18,6 +18,7 @@ from .common import ErrorDialog
 class HotkeySettingsDialog(QDialog):
     hotkey_updated = pyqtSignal(object, str)
     hotkey_forbidden = pyqtSignal(object, str)
+    callback_requested = pyqtSignal(object)
 
     def __init__(self, parent=None, hotkeys_dict=None, callback=None):
         super().__init__(parent)
@@ -45,11 +46,13 @@ class HotkeySettingsDialog(QDialog):
         self.setWindowTitle(tr("hotkey_settings_title"))
         self.setFixedSize(400, 440)
         self.setStyleSheet(f"background-color: {t['PANEL_BG']}; {STYLES['TEXT_DARK']}; font-family: Arial;")
-        self.hotkeys = hotkeys_dict
+        self.hotkeys = dict(hotkeys_dict or {})
         self.callback = callback
         self.btn_refs = {}
+        self._capture_lock = threading.Lock()
 
         self.hotkey_updated.connect(self._apply_new_hotkey)
+        self.callback_requested.connect(self._notify_callback)
         self.hotkey_forbidden.connect(self._show_forbidden_error)
 
         layout = QVBoxLayout(self)
@@ -139,13 +142,14 @@ class HotkeySettingsDialog(QDialog):
                     self.hotkey_forbidden.emit(btn, original_text)
                     return
 
-                self.hotkeys[action_key] = new_hotkey.lower()
+                value = new_hotkey.lower()
+                if any(k != action_key and v.lower() == value for k, v in self.hotkeys.items()):
+                    self.hotkey_forbidden.emit(btn, original_text)
+                    return
+                self.hotkeys[action_key] = value
                 display_text = hotkey_to_english(new_hotkey).upper()
-
                 self.hotkey_updated.emit(btn, display_text)
-
-                if self.callback:
-                    self.callback(self.hotkeys)
+                self.callback_requested.emit(dict(self.hotkeys))
             except Exception as e:
                 print(f"[DEBUG HOTKEY] Error capturing hotkey: {e}")
                 self.hotkey_updated.emit(btn, original_text)
@@ -159,6 +163,11 @@ class HotkeySettingsDialog(QDialog):
         btn.setText(text)
         btn.setStyleSheet(self.BTN_HOTKEY_STYLE)
         btn.update()
+
+    @pyqtSlot(object)
+    def _notify_callback(self, hotkeys):
+        if self.callback:
+            self.callback(hotkeys)
 
     @pyqtSlot(object, str)
     def _show_forbidden_error(self, btn, original_text):

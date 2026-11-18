@@ -173,6 +173,7 @@ TRANSLATIONS = {
         "log_layout_failed": "WARNING: Failed to sync layout. Text input may be incorrect.",
         "log_lang_changed": "Language changed to English.",
         "log_theme_changed": "Theme changed to Light.",
+        "log_cannot_change_profile": "Cannot change profile during recording or playback.",
         "layout_suffix": "layout",
     },
     "ru": {
@@ -347,6 +348,7 @@ TRANSLATIONS = {
         "log_layout_failed": "ВНИМАНИЕ: Не удалось синхронизировать раскладку. Ввод текста может быть некорректным.",
         "log_lang_changed": "Язык изменён на русский.",
         "log_theme_changed": "Тема изменена на тёмную.",
+        "log_cannot_change_profile": "Нельзя менять профиль во время записи или воспроизведения.",
         "layout_suffix": "раскладка",
     },
 }

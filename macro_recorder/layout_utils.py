@@ -9,7 +9,10 @@ from .i18n import tr
 
 
 def get_current_layout_hkl():
-    """Системная раскладка текущего потока ввода."""
+    """Возвращает раскладку активного окна или текущего потока."""
+    active = get_focus_layout_hkl() or get_foreground_layout_hkl()
+    if active:
+        return active
     return ctypes.windll.user32.GetKeyboardLayout(0)
 
 
@@ -120,18 +123,18 @@ def layout_name(hkl):
 
 
 def is_target_layout_active(target_hkl):
-    """Проверяет, активна ли целевая раскладка (любой из 3 источников)."""
+    """Проверяет раскладку именно активного окна, а не потока Macro Recorder."""
+    if target_hkl is None:
+        return False
     refresh_input_state()
     focus = get_focus_layout_hkl()
-    if focus is not None and layouts_match(focus, target_hkl):
-        return True
-    fg = get_foreground_layout_hkl()
-    if fg is not None and layouts_match(fg, target_hkl):
-        return True
-    own = get_current_layout_hkl()
-    if layouts_match(own, target_hkl):
-        return True
-    return False
+    foreground = get_foreground_layout_hkl()
+    # Не используем GetKeyboardLayout(0): он возвращает раскладку потока
+    # приложения-рекордера и создавал ложное сообщение о синхронизации.
+    return any(
+        layout is not None and layouts_match(layout, target_hkl)
+        for layout in (focus, foreground)
+    )
 
 
 def release_stuck_modifiers():
@@ -187,7 +190,53 @@ def detect_system_language_hotkey(logger):
     except Exception as e:
         logger.warning(f"Failed to detect system lang hotkey from registry: {e}")
 
-    return "alt+shift"
+    # На Windows 10/11 по умолчанию переключение часто назначено на Win+Space.
+    return "win+space"
+
+
+def activate_layout(target_hkl, logger):
+    """Назначает целевую раскладку активному окну напрямую через WinAPI."""
+    if target_hkl is None:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+        # WM_INPUTLANGCHANGEREQUEST надёжнее переключения Alt+Shift/Win+Space:
+        # он выбирает конкретную HKL, а не переключает раскладки вслепую.
+        WM_INPUTLANGCHANGEREQUEST = 0x0050
+        result = user32.PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, int(target_hkl))
+        logger.debug(f"[LAYOUT] WM_INPUTLANGCHANGEREQUEST sent to hwnd={hwnd}, result={result}")
+        return bool(result)
+    except Exception as exc:
+        logger.warning(f"[LAYOUT] Direct layout activation failed: {exc}")
+        return False
+
+
+def ensure_layout(target_hkl, system_lang_switch_combo, logger, attempts=4):
+    """Выбирает записанную раскладку и проверяет результат после каждой попытки."""
+    if target_hkl is None:
+        return False
+    combo = system_lang_switch_combo or "win+space"
+    for attempt in range(attempts):
+        refresh_input_state()
+        if is_target_layout_active(target_hkl):
+            logger.debug(f"[LAYOUT] Target layout is active: {layout_name(target_hkl)}")
+            return True
+        logger.debug(f"[LAYOUT] Layout mismatch (attempt {attempt + 1}/{attempts})")
+        activate_layout(target_hkl, logger)
+        time.sleep(0.25)
+        refresh_input_state()
+        if is_target_layout_active(target_hkl):
+            return True
+        # Fallback для приложений, которые игнорируют WM_INPUTLANGCHANGEREQUEST.
+        if send_lang_switch_once(combo, logger):
+            time.sleep(0.25)
+    refresh_input_state()
+    result = is_target_layout_active(target_hkl)
+    logger.debug(f"[LAYOUT] Final layout check: {result}")
+    return result
 
 
 def send_lang_switch_once(system_lang_switch_combo, logger):
