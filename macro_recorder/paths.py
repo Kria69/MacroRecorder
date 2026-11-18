@@ -24,7 +24,12 @@ def setup_logging(log_dir):
 
     fh = logging.FileHandler(log_file, encoding='utf-8')
     fh.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    
+    # Детальный формат: Время | Уровень | Файл:Строка в Функции | Сообщение
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d in %(funcName)s | %(message)s'
+    )
+    
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     return logger, log_file

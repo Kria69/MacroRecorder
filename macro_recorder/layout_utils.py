@@ -178,6 +178,7 @@ def detect_system_language_hotkey(logger):
 
                         combo = '+'.join(parts)
                         if combo:
+                            logger.debug(f"[LAYOUT] Detected system lang hotkey: {combo}")
                             return combo
 
                     idx += 1
@@ -200,8 +201,10 @@ def send_lang_switch_once(system_lang_switch_combo, logger):
     release_stuck_modifiers()
     
     combo = system_lang_switch_combo or "alt+shift"
+    logger.debug(f"[LAYOUT] Attempting to send lang switch combo: '{combo}'")
     try:
         keyboard.send(combo, do_press=True, do_release=True)
+        logger.debug("[LAYOUT] Combo sent successfully.")
         return True
     except Exception as e:
         logger.error(f"Lang switch send failed ({combo}): {e}")

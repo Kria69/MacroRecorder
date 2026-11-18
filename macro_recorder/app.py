@@ -133,6 +133,7 @@ class HotkeyEventFilter(QAbstractNativeEventFilter):
 class MacroApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.logger.debug("[INIT] MacroApp constructor started.")
 
         self.BASE_DIR = get_base_dir()
         self.LOG_DIR = os.path.join(self.BASE_DIR, "logs")
@@ -228,6 +229,7 @@ class MacroApp(QMainWindow):
         self.add_log(tr("log_system_ready"))
 
     def closeEvent(self, event):
+        self.logger.debug("[APP] Close event triggered.")
         self._hotkey_filter.unregister_all()
         super().closeEvent(event)
 
@@ -240,6 +242,7 @@ class MacroApp(QMainWindow):
                     lang = data.get("language", "en")
                     if lang in i18n_mod.TRANSLATIONS:
                         i18n_mod.CURRENT_LANG = lang
+                        self.logger.debug(f"[CONFIG] Language loaded: {lang}")
         except Exception:
             pass
 
@@ -247,13 +250,14 @@ class MacroApp(QMainWindow):
         try:
             with open(self.LANG_CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump({"language": i18n_mod.CURRENT_LANG}, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"Language config saved: {i18n_mod.CURRENT_LANG}")
+            self.logger.debug(f"[CONFIG] Language config saved: {i18n_mod.CURRENT_LANG}")
         except Exception as e:
             self.logger.error(f"Error saving language config: {e}")
 
     def change_language(self, lang):
         if lang == i18n_mod.CURRENT_LANG:
             return
+        self.logger.info(f"[APP] Changing language to: {lang}")
         i18n_mod.CURRENT_LANG = lang
         self.save_language_config()
         self.retranslate_ui()
@@ -267,6 +271,7 @@ class MacroApp(QMainWindow):
                     theme = data.get("theme", "light")
                     if theme in THEMES:
                         theme_mod.CURRENT_THEME = theme
+                        self.logger.debug(f"[CONFIG] Theme loaded: {theme}")
         except Exception:
             pass
         theme_mod.STYLES = build_styles()
@@ -275,13 +280,14 @@ class MacroApp(QMainWindow):
         try:
             with open(self.THEME_CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump({"theme": theme_mod.CURRENT_THEME}, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"Theme config saved: {theme_mod.CURRENT_THEME}")
+            self.logger.debug(f"[CONFIG] Theme config saved: {theme_mod.CURRENT_THEME}")
         except Exception as e:
             self.logger.error(f"Error saving theme config: {e}")
 
     def change_theme(self, theme):
         if theme == theme_mod.CURRENT_THEME:
             return
+        self.logger.info(f"[APP] Changing theme to: {theme}")
         theme_mod.CURRENT_THEME = theme
         theme_mod.STYLES = build_styles()
         self.save_theme_config()
@@ -289,6 +295,7 @@ class MacroApp(QMainWindow):
         self.bridge.log_signal.emit(tr("log_theme_changed"))
 
     def apply_theme(self):
+        self.logger.debug("[UI] Applying theme styles...")
         t = THEMES[theme_mod.CURRENT_THEME]
         self.centralWidget().setStyleSheet(STYLES["MAIN_BG"])
         self.top_frame.setStyleSheet(STYLES["WHITE_PANEL"])
@@ -320,6 +327,7 @@ class MacroApp(QMainWindow):
         self.act_theme_dark.setChecked(theme_mod.CURRENT_THEME == "dark")
 
     def retranslate_ui(self):
+        self.logger.debug("[UI] Retranslating interface...")
         self.setWindowTitle(tr("app_title"))
         self.lbl_select_profile.setText(tr("select_profile"))
         self.btn_rename.setText(tr("btn_rename"))
@@ -383,6 +391,7 @@ class MacroApp(QMainWindow):
                     data = json.load(f)
                     cfg = self.default_hotkeys.copy()
                     cfg.update(data)
+                    self.logger.debug(f"[CONFIG] Hotkeys loaded from file.")
                     return cfg
             except Exception as e:
                 self.logger.error(f"Error loading hotkeys config: {e}")
@@ -392,18 +401,19 @@ class MacroApp(QMainWindow):
         try:
             with open(self.CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(self.hotkeys, f, indent=2, ensure_ascii=False)
-            self.logger.info("Hotkeys config saved.")
+            self.logger.debug("[CONFIG] Hotkeys config saved.")
         except Exception as e:
             self.logger.error(f"Error saving hotkeys config: {e}")
 
     def load_all_profiles(self):
+        self.logger.debug("[PROFILES] Loading all profiles...")
         loaded = profiles_io.load_all_profiles(self.PROFILE_DIR, lambda n: tr("profile_default_name", n=n), self.logger)
         self.profiles.update(loaded)
 
     def save_current_profile(self):
         pid = self.current_profile_id
         self.profiles[pid]["events"] = list(self.events)
-        self.bridge.log_signal.emit(tr("log_profile_saved", pid=pid))
+        self.logger.debug(f"[PROFILES] Saving profile {pid} in background thread.")
         threading.Thread(target=profiles_io.save_profile, args=(self.PROFILE_DIR, pid, self.profiles[pid], self.logger), daemon=True).start()
 
     # ==================== UI ====================
@@ -432,6 +442,7 @@ class MacroApp(QMainWindow):
             self.logger.warning(f"Icon load error: {e}")
 
     def init_ui(self):
+        self.logger.debug("[UI] Initializing UI components...")
         t = THEMES[theme_mod.CURRENT_THEME]
         central_widget = QWidget()
         central_widget.setStyleSheet(STYLES["MAIN_BG"])
@@ -652,12 +663,15 @@ class MacroApp(QMainWindow):
 
     # ==================== ДЕЙСТВИЯ ====================
     def open_help(self):
+        self.logger.debug("[ACTION] Opening Help dialog.")
         HelpDialog(self).exec()
 
     def open_admin_panel(self):
+        self.logger.debug("[ACTION] Opening Admin Panel.")
         dlg = AdminPanelDialog(self, data_dir=self.BASE_DIR, hotkeys=self.hotkeys, debug_mode=self.debug_mode, on_debug_changed=self.set_debug_mode)
         dlg.exec()
         if dlg.restart_requested():
+            self.logger.info("[ACTION] Restart requested by Admin Panel.")
             self.close()
 
     def _styled_file_dialog(self, title, accept_mode, file_mode):
@@ -671,6 +685,7 @@ class MacroApp(QMainWindow):
         return dlg
 
     def export_current_profile(self):
+        self.logger.debug(f"[ACTION] Exporting profile {self.current_profile_id}.")
         if self.is_recording or self.is_playing:
             self.bridge.log_signal.emit(tr("log_cannot_record_playing") if self.is_recording else tr("log_cannot_play_recording"))
             return
@@ -695,6 +710,7 @@ class MacroApp(QMainWindow):
             ErrorDialog(tr("export_error"), self).exec()
 
     def import_profile(self):
+        self.logger.debug(f"[ACTION] Importing profile into slot {self.current_profile_id}.")
         if self.is_recording or self.is_playing:
             self.bridge.log_signal.emit(tr("log_cannot_record_playing") if self.is_recording else tr("log_cannot_play_recording"))
             return
@@ -729,6 +745,7 @@ class MacroApp(QMainWindow):
 
     def set_debug_mode(self, enabled):
         self.debug_mode = bool(enabled)
+        self.logger.info(f"[CONFIG] Debug mode set to: {self.debug_mode}")
         self.bridge.log_signal.emit(tr("log_debug_enabled") if self.debug_mode else tr("log_debug_disabled"))
 
     def show_profile_menu(self):
@@ -744,6 +761,7 @@ class MacroApp(QMainWindow):
             scrollbar.setValue(scrollbar.maximum())
 
     def open_hotkeys_settings(self):
+        self.logger.debug("[ACTION] Opening Hotkey Settings.")
         HotkeySettingsDialog(self, self.hotkeys, self.on_hotkeys_updated).exec()
 
     def on_hotkeys_updated(self, new_hotkeys):
@@ -754,6 +772,7 @@ class MacroApp(QMainWindow):
         self.bridge.log_signal.emit(tr("log_hotkeys_updated"))
 
     def select_profile_by_id(self, idx):
+        self.logger.debug(f"[ACTION] Profile selected: {idx}")
         self.current_profile_id = idx
         self.update_current_context()
         self.lbl_current_profile.setText(self.profiles[self.current_profile_id]["name"])
@@ -769,6 +788,7 @@ class MacroApp(QMainWindow):
                 act.setText(self.profiles[idx]["name"])
 
     def rename_current_profile(self):
+        self.logger.debug(f"[ACTION] Renaming profile {self.current_profile_id}.")
         dlg = RenameDialog(self.profiles[self.current_profile_id]["name"], self)
         if dlg.exec():
             new_name = dlg.get_name()
@@ -783,6 +803,7 @@ class MacroApp(QMainWindow):
                 self.logger.info(f"Renamed profile to '{new_name}'")
 
     def clear_current_profile(self):
+        self.logger.debug(f"[ACTION] Clearing profile {self.current_profile_id}.")
         if ConfirmClearDialog(self).exec() == QDialog.DialogCode.Accepted:
             pid = self.current_profile_id
             self.events = []
@@ -815,13 +836,16 @@ class MacroApp(QMainWindow):
 
     # ==================== ЗАПИСЬ ====================
     def toggle_recording(self):
+        self.logger.debug("[ACTION] Toggle recording clicked.")
         if self.is_recording:
             self.stop_recording()
         else:
             self.start_recording()
 
     def start_recording(self):
+        self.logger.debug("[RECORD] start_recording called.")
         if self.is_playing:
+            self.logger.warning("[RECORD] Blocked: playback in progress.")
             self.bridge.log_signal.emit(tr("log_cannot_record_playing"))
             return
         self.recording_layout_hkl = layout_utils.get_current_layout_hkl()
@@ -839,8 +863,10 @@ class MacroApp(QMainWindow):
         self.bridge.log_signal.emit(tr("log_recording_started"))
         keyboard.hook(self.on_keyboard_event)
         mouse.hook(self.on_mouse_event)
+        self.logger.debug("[RECORD] Hooks installed successfully.")
 
     def toggle_pause_recording(self):
+        self.logger.debug("[ACTION] Toggle pause recording clicked.")
         if not self.is_recording:
             return
         if not self.is_paused_recording:
@@ -858,6 +884,7 @@ class MacroApp(QMainWindow):
             self.bridge.log_signal.emit(tr("log_recording_resumed"))
 
     def stop_recording(self):
+        self.logger.debug("[RECORD] stop_recording called.")
         self.is_recording = False
         self.is_paused_recording = False
         self.active_modifiers = []
@@ -866,6 +893,7 @@ class MacroApp(QMainWindow):
         try:
             keyboard.unhook_all()
             mouse.unhook_all()
+            self.logger.debug("[RECORD] Hooks removed.")
         except Exception:
             pass
         if self.events:
@@ -880,6 +908,7 @@ class MacroApp(QMainWindow):
 
     # ==================== ВОСПРОИЗВЕДЕНИЕ ====================
     def toggle_playback(self):
+        self.logger.debug("[ACTION] Toggle playback clicked.")
         if self.is_playing:
             self.stop_playback()
         else:
@@ -889,65 +918,53 @@ class MacroApp(QMainWindow):
         return self._playback_stop_requested
 
     def start_playback(self):
-        """
-        ИСПРАВЛЕНИЕ: Блокировка повторного запуска через _playback_launching.
-        УСИЛЕНИЕ: Проверка раскладки через все 3 источника.
-        """
-        self.logger.info("[DEBUG] start_playback() called")
-        self.logger.info(f"[DEBUG] is_recording={self.is_recording}, is_playing={self.is_playing}, _launching={self._playback_launching}")
+        self.logger.debug("[PLAYBACK] start_playback called.")
+        self.logger.debug(f"[PLAYBACK] State: is_recording={self.is_recording}, is_playing={self.is_playing}, _launching={self._playback_launching}")
         
         if self.is_recording:
-            self.logger.info("[DEBUG] Blocked: recording in progress")
+            self.logger.warning("[PLAYBACK] Blocked: recording in progress.")
             self.bridge.log_signal.emit(tr("log_cannot_play_recording"))
             return
-        # Блокируем, если уже играет ИЛИ если идет процесс запуска (ждем сигнал)
         if self.is_playing or self._playback_launching:
-            self.logger.info("[DEBUG] Blocked: already playing or launching")
+            self.logger.warning("[PLAYBACK] Blocked: already playing or launching.")
             return
         if not self.events:
-            self.logger.info("[DEBUG] Blocked: no events")
+            self.logger.warning("[PLAYBACK] Blocked: no events.")
             safe_invoke(self._show_no_events_warning)
             return
 
-        # === ЭТАП 1: проверка раскладки через ВСЕ 3 источника ===
         if self.recording_layout_hkl is not None:
-            self.logger.info(f"[DEBUG] Recording layout HKL: {hex(self.recording_layout_hkl)} ({layout_utils.layout_name(self.recording_layout_hkl)})")
+            self.logger.info(f"[PLAYBACK] Recording layout HKL: {hex(self.recording_layout_hkl)} ({layout_utils.layout_name(self.recording_layout_hkl)})")
             
             layout_utils.refresh_input_state()
             
-            # Используем is_target_layout_active вместо layouts_match — 
-            # это проверяет focus, foreground И own потоки
             already_active = layout_utils.is_target_layout_active(self.recording_layout_hkl)
-            self.logger.info(f"[DEBUG] is_target_layout_active(recording_hkl): {already_active}")
+            self.logger.debug(f"[PLAYBACK] is_target_layout_active check: {already_active}")
             
             if not already_active:
                 current_hkl = layout_utils.get_current_layout_hkl()
                 focus_hkl = layout_utils.get_focus_layout_hkl()
                 fg_hkl = layout_utils.get_foreground_layout_hkl()
                 
-                self.logger.info(f"[DEBUG] Current layout HKL: {hex(current_hkl)} ({layout_utils.layout_name(current_hkl)})")
-                self.logger.info(f"[DEBUG] Focus layout HKL: {hex(focus_hkl) if focus_hkl else 'None'} ({layout_utils.layout_name(focus_hkl) if focus_hkl else '?'})")
-                self.logger.info(f"[DEBUG] Foreground layout HKL: {hex(fg_hkl) if fg_hkl else 'None'} ({layout_utils.layout_name(fg_hkl) if fg_hkl else '?'})")
+                self.logger.info(f"[PLAYBACK] Current layout HKL: {hex(current_hkl)} ({layout_utils.layout_name(current_hkl)})")
+                self.logger.info(f"[PLAYBACK] Focus layout HKL: {hex(focus_hkl) if focus_hkl else 'None'} ({layout_utils.layout_name(focus_hkl) if focus_hkl else '?'})")
+                self.logger.info(f"[PLAYBACK] Foreground layout HKL: {hex(fg_hkl) if fg_hkl else 'None'} ({layout_utils.layout_name(fg_hkl) if fg_hkl else '?'})")
                 
-                self.logger.info("[DEBUG] MISMATCH detected - sending lang switch combo")
-                self.bridge.log_signal.emit(tr("log_layout_mismatch",
-                                               rec=layout_utils.layout_name(self.recording_layout_hkl),
-                                               cur=layout_utils.layout_name(current_hkl)))
+                self.logger.info("[PLAYBACK] MISMATCH detected - sending lang switch combo")
                 
                 combo = self.system_lang_switch_combo or "alt+shift"
-                self.logger.info(f"[DEBUG] Using combo: '{combo}'")
+                self.logger.debug(f"[PLAYBACK] Using combo: '{combo}'")
                 
                 sent = layout_utils.send_lang_switch_once(combo, self.logger)
-                self.logger.info(f"[DEBUG] send_lang_switch_once returned: {sent}")
+                self.logger.debug(f"[PLAYBACK] send_lang_switch_once returned: {sent}")
             else:
-                self.logger.info("[DEBUG] Layout already active via all sources - skipping switch")
+                self.logger.debug("[PLAYBACK] Layout already active via all sources - skipping switch")
         else:
-            self.logger.info("[DEBUG] No recording_layout_hkl set - skipping layout check")
+            self.logger.debug("[PLAYBACK] No recording_layout_hkl set - skipping layout check")
 
-        # === ЭТАП 2: запуск воркера ===
-        self.logger.info("[DEBUG] Starting playback worker thread")
+        self.logger.debug("[PLAYBACK] Starting playback worker thread.")
         self._playback_stop_requested = False
-        self._playback_launching = True  # Устанавливаем флаг ДО запуска потока
+        self._playback_launching = True
         self.playback_start_time = time.time()
         self.playback_paused_duration = 0
         self.playback_total_duration = self.events[-1]['time'] if self.events else 0
@@ -955,9 +972,9 @@ class MacroApp(QMainWindow):
         try:
             t = threading.Thread(target=self._playback_worker, daemon=True)
             t.start()
-            self.logger.info(f"[DEBUG] Worker thread started, ident={t.ident}")
+            self.logger.debug(f"[PLAYBACK] Worker thread started, ident={t.ident}")
         except Exception as e:
-            self.logger.error(f"[DEBUG] Failed to start playback thread: {e}", exc_info=True)
+            self.logger.error(f"[PLAYBACK] Failed to start playback thread: {e}", exc_info=True)
             self._playback_launching = False
 
     def _show_no_events_warning(self):
@@ -965,7 +982,7 @@ class MacroApp(QMainWindow):
 
     @pyqtSlot()
     def _on_playback_started_ui(self):
-        self.logger.info("[DEBUG] _on_playback_started_ui slot triggered")
+        self.logger.debug("[SIGNAL] _on_playback_started_ui triggered.")
         self._playback_launching = False
         self.is_playing = True
         self.is_paused_playing = False
@@ -974,11 +991,11 @@ class MacroApp(QMainWindow):
 
     @pyqtSlot()
     def _on_playback_finished_ui(self):
-        self.logger.info("[DEBUG] _on_playback_finished_ui slot triggered")
+        self.logger.debug("[SIGNAL] _on_playback_finished_ui triggered.")
         self._playback_launching = False
         self._playback_stop_requested = False
         if not self.is_playing:
-            self.logger.info("[DEBUG] Already not playing, skipping UI reset")
+            self.logger.debug("[SIGNAL] Already not playing, skipping UI reset.")
             return
         self.is_playing = False
         self.is_paused_playing = False
@@ -991,86 +1008,79 @@ class MacroApp(QMainWindow):
         self.update_status()
 
     def _playback_worker(self):
-        """
-        Воркер без больших задержек.
-        Короткая проверка раскладки перед первым символом (200 мс).
-        При необходимости — одно повторное переключение.
-        """
-        # Флаг уже установлен в start_playback, но на всякий случай
-        # self._playback_launching = True 
-        self.logger.info("[DEBUG-WORKER] Playback worker started")
+        self.logger.debug("[WORKER] Playback worker started.")
         
         try:
-            self.logger.info("[DEBUG-WORKER] Sleeping 100ms for hook release")
+            self.logger.debug("[WORKER] Sleeping 100ms for hook release.")
             time.sleep(0.1)
 
             if self._playback_should_stop():
-                self.logger.info("[DEBUG-WORKER] Stop requested before restore")
+                self.logger.warning("[WORKER] Stop requested before restore.")
                 return
 
-            self.logger.info("[DEBUG-WORKER] Restoring window states")
+            self.logger.debug("[WORKER] Restoring window states.")
             self._restore_window_states()
             
-            # === КОРОТКАЯ ПРОВЕРКА РАСКЛАДКИ ПЕРЕД ВВОДОМ ===
             if self.recording_layout_hkl is not None:
-                self.logger.info("[DEBUG-WORKER] Waiting 200ms for layout switch to take effect")
+                self.logger.debug("[WORKER] Waiting 200ms for layout switch to take effect.")
                 time.sleep(0.2)
                 
                 layout_utils.refresh_input_state()
                 current_hkl = layout_utils.get_current_layout_hkl()
                 focus_hkl = layout_utils.get_focus_layout_hkl()
                 
-                self.logger.info(f"[DEBUG-WORKER] After wait - current HKL: {hex(current_hkl)}, focus HKL: {hex(focus_hkl) if focus_hkl else 'None'}")
-                self.logger.info(f"[DEBUG-WORKER] Target HKL: {hex(self.recording_layout_hkl)}")
+                self.logger.debug(f"[WORKER] After wait - current HKL: {hex(current_hkl)}, focus HKL: {hex(focus_hkl) if focus_hkl else 'None'}")
+                self.logger.debug(f"[WORKER] Target HKL: {hex(self.recording_layout_hkl)}")
                 
                 is_active = layout_utils.is_target_layout_active(self.recording_layout_hkl)
-                self.logger.info(f"[DEBUG-WORKER] is_target_layout_active: {is_active}")
+                self.logger.debug(f"[WORKER] is_target_layout_active: {is_active}")
                 
                 if not is_active:
-                    self.logger.info("[DEBUG-WORKER] Layout still mismatched - retrying switch once")
+                    self.logger.warning("[WORKER] Layout still mismatched - retrying switch once.")
                     combo = self.system_lang_switch_combo or "alt+shift"
                     sent = layout_utils.send_lang_switch_once(combo, self.logger)
-                    self.logger.info(f"[DEBUG-WORKER] Retry send result: {sent}")
+                    self.logger.debug(f"[WORKER] Retry send result: {sent}")
                     
                     time.sleep(0.2)
                     layout_utils.refresh_input_state()
                     
                     is_active_after_retry = layout_utils.is_target_layout_active(self.recording_layout_hkl)
-                    self.logger.info(f"[DEBUG-WORKER] After retry - is_target_layout_active: {is_active_after_retry}")
+                    self.logger.debug(f"[WORKER] After retry - is_target_layout_active: {is_active_after_retry}")
                     
                     if is_active_after_retry:
-                        self.logger.info("[DEBUG-WORKER] Layout synced successfully after retry")
+                        self.logger.info("[WORKER] Layout synced successfully after retry.")
                         self.bridge.log_signal.emit(tr("log_layout_synced"))
                     else:
-                        self.logger.warning("[DEBUG-WORKER] Layout sync FAILED after retry")
+                        self.logger.warning("[WORKER] Layout sync FAILED after retry.")
                         self.bridge.log_signal.emit(tr("log_layout_failed"))
                 else:
-                    self.logger.info("[DEBUG-WORKER] Layout already correct after initial wait")
+                    self.logger.debug("[WORKER] Layout already correct after initial wait.")
                     self.bridge.log_signal.emit(tr("log_layout_synced"))
 
             if self._playback_should_stop():
-                self.logger.info("[DEBUG-WORKER] Stop requested after layout sync")
+                self.logger.warning("[WORKER] Stop requested after layout sync.")
                 return
 
-            self.logger.info("[DEBUG-WORKER] Emitting playback_started_signal")
+            self.logger.debug("[WORKER] Emitting playback_started_signal.")
             self.bridge.playback_started_signal.emit()
             time.sleep(0.02)
 
-            self.logger.info("[DEBUG-WORKER] Emitting log_playback_started")
+            self.logger.debug("[WORKER] Emitting log_playback_started.")
             self.bridge.log_signal.emit(tr("log_playback_started"))
             
-            self.logger.info("[DEBUG-WORKER] Starting playback_loop")
+            self.logger.info("[WORKER] Starting playback_loop.")
             self.playback_loop()
-            self.logger.info("[DEBUG-WORKER] playback_loop finished")
+            self.logger.debug("[WORKER] playback_loop finished.")
             
         except Exception as e:
-            self.logger.error(f"[DEBUG-WORKER] Exception in worker: {e}", exc_info=True)
+            self.logger.error(f"[WORKER] Exception in worker: {e}", exc_info=True)
         finally:
             self._playback_launching = False
+            self.logger.debug("[WORKER] Worker finished, emitting playback_finished_signal.")
             self.bridge.playback_finished_signal.emit()
-            self.logger.info("[DEBUG-WORKER] Worker finished, emitting playback_finished_signal")
 
     def toggle_pause_playback(self):
+        self.logger.debug("[ACTION] Toggle pause playback clicked.")
         if not self.is_playing:
             return
         if not self.is_paused_playing:
@@ -1090,12 +1100,13 @@ class MacroApp(QMainWindow):
             self.lbl_state_val.setText(tr("state_playing", cur=f"{mins:02d}:{cur_s:02d}", tot=f"{tot_m:02d}:{tot_s:02d}"))
 
     def stop_playback(self):
-        self.logger.info("[DEBUG] stop_playback() called")
+        self.logger.debug("[PLAYBACK] stop_playback called.")
         self._playback_stop_requested = True
         self.is_playing = False
 
     # ==================== ОКНА ====================
     def _save_window_states(self):
+        self.logger.debug("[WINDOWS] Saving window states.")
         self.saved_window_states = []
         def enum_cb(hwnd, lParam):
             if win32gui.IsWindowVisible(hwnd):
@@ -1107,6 +1118,7 @@ class MacroApp(QMainWindow):
         win32gui.EnumWindows(enum_cb, None)
 
     def _restore_window_states(self):
+        self.logger.debug("[WINDOWS] Restoring window states.")
         for state in self.saved_window_states:
             try:
                 hwnd = state['hwnd']
@@ -1119,59 +1131,61 @@ class MacroApp(QMainWindow):
     def on_keyboard_event(self, e):
         if not self.is_recording or self.is_paused_recording:
             return
+        
+        self.logger.debug(f"[HOOK] Key event: name={e.name}, type={e.event_type}, scan_code={e.scan_code}")
+        
         if e.name == 'x' or e.name.lower() == 'caps lock':
+            self.logger.debug("[HOOK] Ignoring key 'x' or 'caps lock'.")
             return
+            
         current_time = time.time() - self.start_time - self.total_paused_duration
         modifier_keys = ['ctrl', 'left ctrl', 'right ctrl', 'alt', 'left alt', 'right alt', 'shift', 'left shift', 'right shift', 'windows', 'left windows', 'right windows']
         is_modifier = e.name in modifier_keys
+        
         if is_modifier:
             if e.event_type == 'down':
                 if e.name not in self.active_modifiers:
                     self.active_modifiers.append(e.name)
                     self.last_modifier_down_time = current_time
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: Modifier DOWN -> {e.name}")
+                    self.logger.debug(f"[RECORD] Modifier DOWN added: {e.name}. Active: {self.active_modifiers}")
             elif e.event_type == 'up':
                 if e.name in self.active_modifiers:
                     time_since_down = current_time - self.last_modifier_down_time
                     is_standalone = len(self.active_modifiers) == 1 and time_since_down < 0.3
                     if is_standalone:
+                        self.logger.debug(f"[RECORD] Standalone modifier detected: {e.name}. Adding as combo.")
                         self.events.append({"time": current_time, "type": "modifier_combo", "data": {"modifiers": list(self.active_modifiers)}})
-                        if self.debug_mode:
-                            self.bridge.log_signal.emit(f"DEBUG RECORD: MODIFIER COMBO -> {'+'.join(m.capitalize() for m in self.active_modifiers)}")
                     self.active_modifiers.remove(e.name)
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: Modifier UP -> {e.name}")
+                    self.logger.debug(f"[RECORD] Modifier UP removed: {e.name}. Remaining: {self.active_modifiers}")
         else:
             if e.event_type == 'down':
                 is_uppercase = len(e.name) == 1 and e.name.isupper()
                 effective_modifiers = list(self.active_modifiers)
                 if is_uppercase and 'shift' not in effective_modifiers and 'left shift' not in effective_modifiers and 'right shift' not in effective_modifiers:
                     effective_modifiers.append('shift')
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: Simulating Shift for uppercase '{e.name}'")
+                    self.logger.debug(f"[RECORD] Simulating Shift for uppercase char: {e.name}")
+                
                 if effective_modifiers:
                     self.events.append({"time": current_time, "type": "hotkey_combo", "data": {"modifiers": effective_modifiers, "key": e.name.lower()}})
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: HOTKEY COMBO -> {'+'.join(m.capitalize() for m in effective_modifiers)}+{e.name.upper()}")
+                    self.logger.debug(f"[RECORD] Hotkey combo saved: {'+'.join(effective_modifiers)}+{e.name}")
                 else:
                     self.events.append({"time": current_time, "type": "key_down", "data": {"key": e.name.lower()}})
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: KEY DOWN -> {e.name}")
+                    self.logger.debug(f"[RECORD] Key DOWN saved: {e.name}")
             elif e.event_type == 'up':
                 if not (len(e.name) == 1 and e.name.isupper()):
                     self.events.append({"time": current_time, "type": "key_up", "data": {"key": e.name.lower()}})
-                    if self.debug_mode:
-                        self.bridge.log_signal.emit(f"DEBUG RECORD: KEY UP -> {e.name}")
+                    self.logger.debug(f"[RECORD] Key UP saved: {e.name}")
 
     def on_mouse_event(self, e):
         if not self.is_recording or self.is_paused_recording:
             return
+        
         current_time = time.time() - self.start_time - self.total_paused_duration
         if isinstance(e, mouse.MoveEvent):
             self.events.append({"time": current_time, "type": "mouse_move", "data": {"x": e.x, "y": e.y}})
             if self.debug_mode:
                 self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE MOVE -> ({e.x}, {e.y})")
+            self.logger.debug(f"[HOOK] Mouse move recorded at ({e.x}, {e.y})")
         elif isinstance(e, mouse.ButtonEvent):
             pressed = (e.event_type == 'down')
             try:
@@ -1181,6 +1195,7 @@ class MacroApp(QMainWindow):
             self.events.append({"time": current_time, "type": "mouse_click", "data": {"x": x, "y": y, "button": e.button, "pressed": pressed}})
             if self.debug_mode:
                 self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE {'PRESS' if pressed else 'RELEASE'} -> {e.button} at ({x}, {y})")
+            self.logger.debug(f"[HOOK] Mouse click recorded: button={e.button}, pressed={pressed} at ({x}, {y})")
         elif isinstance(e, mouse.WheelEvent):
             try:
                 x, y = mouse.get_position()
@@ -1189,6 +1204,7 @@ class MacroApp(QMainWindow):
             self.events.append({"time": current_time, "type": "mouse_scroll", "data": {"x": x, "y": y, "dx": 0, "dy": e.delta}})
             if self.debug_mode:
                 self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE SCROLL -> dy={e.delta} at ({x}, {y})")
+            self.logger.debug(f"[HOOK] Mouse scroll recorded: dy={e.delta} at ({x}, {y})")
 
     def _smooth_move_winapi(self, x1, y1, x2, y2):
         dist = math.hypot(x2 - x1, y2 - y1)
@@ -1216,18 +1232,20 @@ class MacroApp(QMainWindow):
         pause_accumulated = 0
         self.playback_paused_duration = 0
 
-        # Финальная проверка раскладки перед первым вводом
+        self.logger.debug(f"[PLAYBACK] Loop started. Total events: {total_events}, Duration: {total_duration:.2f}s")
+
         if self.recording_layout_hkl is not None:
             layout_utils.refresh_input_state()
             if not layout_utils.is_target_layout_active(self.recording_layout_hkl):
-                self.logger.warning("[DEBUG-PLAYBACK] Final layout check failed! Retrying switch...")
+                self.logger.warning("[PLAYBACK] Final layout check failed! Retrying switch...")
                 combo = self.system_lang_switch_combo or "alt+shift"
                 layout_utils.send_lang_switch_once(combo, self.logger)
                 time.sleep(0.15)
                 layout_utils.refresh_input_state()
 
-        for event in self.events:
+        for i, event in enumerate(self.events):
             if not self.is_playing or self._playback_should_stop():
+                self.logger.debug(f"[PLAYBACK] Loop interrupted at event {i}.")
                 break
             while self.is_paused_playing:
                 p_start = time.time()
@@ -1243,15 +1261,18 @@ class MacroApp(QMainWindow):
                 time.sleep(sleep_t)
             if not self.is_playing or self._playback_should_stop():
                 break
+            
+            etype = event['type']
+            data = event['data']
+            self.logger.debug(f"[PLAYBACK] Executing event {i+1}/{total_events}: type={etype}")
+            
             elapsed = time.time() - start - pause_accumulated
             cur_m, cur_s = divmod(int(elapsed), 60)
             tot_m, tot_s = divmod(int(total_duration), 60)
             name = self.profiles[self.current_profile_id]["name"]
             self.bridge.update_status_signal.emit(name, tr("state_playing", cur=f"{cur_m:02d}:{cur_s:02d}", tot=f"{tot_m:02d}:{tot_s:02d}"))
+            
             try:
-                etype = event['type']
-                data = event['data']
-                
                 if etype == 'mouse_move':
                     x, y = data['x'], data['y']
                     if prev_x is not None:
@@ -1263,20 +1284,15 @@ class MacroApp(QMainWindow):
                         self.bridge.log_signal.emit(f"DEBUG PLAYBACK: MOUSE MOVE -> ({x}, {y})")
                         
                 elif etype == 'modifier_combo':
-                    # ЭМУЛИРУЕМ смену языка, если она была в макросе!
-                    # Это важно для сценариев, где пользователь явно переключал раскладку.
                     modifiers = data.get('modifiers', [])
                     mods_str = "+".join(m.capitalize() for m in modifiers)
-                    self.logger.info(f"[DEBUG-PLAYBACK] Emulating modifier_combo: {mods_str}")
+                    self.logger.info(f"[PLAYBACK] Emulating modifier_combo: {mods_str}")
                     self.bridge.log_signal.emit(f"MODIFIER COMBO -> {mods_str} | Using system combo: {self.system_lang_switch_combo}")
                     
                     try:
                         layout_utils.release_stuck_modifiers()
                         keyboard.send(self.system_lang_switch_combo, do_press=True, do_release=True)
-                        # ВАЖНО: Даем системе время осознать смену раскладки
                         time.sleep(0.2) 
-                        # ВАЖНО: Принудительно отпускаем ВСЕ модификаторы, чтобы они не "залипли"
-                        # и не мешали последующему вводу текста
                         layout_utils.release_stuck_modifiers()
                         
                         if self.debug_mode:
@@ -1336,13 +1352,13 @@ class MacroApp(QMainWindow):
                         self.bridge.log_signal.emit(f"DEBUG PLAYBACK: MOUSE SCROLL -> dy={data['dy']} at ({x}, {y})")
                         
             except Exception as e:
-                self.logger.error(f"Playback error: {e}")
+                self.logger.error(f"Playback error at event {i}: {e}")
                 if self.debug_mode:
                     self.bridge.log_signal.emit(f"ERROR: Playback failed -> {str(e)}")
 
     # ==================== ГОРЯЧИЕ КЛАВИШИ ====================
     def register_hotkeys(self):
-        self.logger.info("[DEBUG] register_hotkeys() called")
+        self.logger.info("[HOTKEYS] register_hotkeys() called.")
         self._hotkey_filter.unregister_all()
         try:
             keyboard.unhook_all_hotkeys()
@@ -1365,7 +1381,7 @@ class MacroApp(QMainWindow):
             hk = self.hotkeys.get(action_key)
             if hk:
                 hid = self._hotkey_filter.register(hk, method)
-                self.logger.info(f"[DEBUG] Registered hotkey '{hk}' for {action_key}, hid={hid}")
+                self.logger.debug(f"[HOTKEYS] Registered hotkey '{hk}' for {action_key}, hid={hid}")
                 if hid is None:
                     errors.append(f"{action_key} ({hk}): registration failed")
         if errors:
@@ -1373,4 +1389,4 @@ class MacroApp(QMainWindow):
             self.logger.error(err_msg)
             self.bridge.log_signal.emit(err_msg)
         else:
-            self.logger.info("All hotkeys registered successfully via RegisterHotKey.")
+            self.logger.info("[HOTKEYS] All hotkeys registered successfully via RegisterHotKey.")

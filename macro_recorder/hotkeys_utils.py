@@ -4,26 +4,29 @@ import ctypes
 import keyboard
 
 
-def get_us_layout():
+def get_us_layout(logger=None):
     """Получает хэндл английской (US) раскладки клавиатуры."""
     try:
         us_hkl = ctypes.windll.user32.LoadKeyboardLayoutW("00000409", 0)
         if us_hkl:
+            if logger: logger.debug(f"[HOTKEY_UTILS] US Layout loaded successfully: {hex(us_hkl)}")
             return us_hkl
-    except Exception:
-        pass
+    except Exception as e:
+        if logger: logger.error(f"[HOTKEY_UTILS] Failed to load US layout: {e}")
     return None
 
 
-def scan_code_to_us_name(scan_code):
+def scan_code_to_us_name(scan_code, logger=None):
     """Преобразует скан-код клавиши в имя клавиши английской (US) раскладки."""
     try:
-        us_hkl = get_us_layout()
+        us_hkl = get_us_layout(logger)
         if us_hkl is None:
+            if logger: logger.warning("[HOTKEY_UTILS] Cannot convert scan code: US layout not available.")
             return None
 
         vk = ctypes.windll.user32.MapVirtualKeyExW(scan_code, 3, us_hkl)
         if vk == 0:
+            if logger: logger.debug(f"[HOTKEY_UTILS] MapVirtualKeyExW returned 0 for scan_code {scan_code}")
             return None
 
         special_vk_names = {
@@ -42,14 +45,24 @@ def scan_code_to_us_name(scan_code):
             0xA4: 'left alt', 0xA5: 'right alt',
         }
         if vk in special_vk_names:
-            return special_vk_names[vk]
+            name = special_vk_names[vk]
+            if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to special VK name: '{name}'")
+            return name
 
         if 0x70 <= vk <= 0x87:
-            return f'f{vk - 0x6F}'
+            name = f'f{vk - 0x6F}'
+            if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to function key: '{name}'")
+            return name
+            
         if 0x30 <= vk <= 0x39:
-            return chr(vk)
+            name = chr(vk)
+            if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to number: '{name}'")
+            return name
+            
         if 0x41 <= vk <= 0x5A:
-            return chr(vk).lower()
+            name = chr(vk).lower()
+            if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to letter: '{name}'")
+            return name
 
         buf = ctypes.create_unicode_buffer(8)
         state = (ctypes.c_ubyte * 256)()
@@ -63,19 +76,26 @@ def scan_code_to_us_name(scan_code):
                 ']': ']', '}': ']', "'": "'",
             }
             if ch in oem_names:
-                return oem_names[ch]
-            return ch.lower()
+                name = oem_names[ch]
+                if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to OEM char: '{name}'")
+                return name
+            name = ch.lower()
+            if logger: logger.debug(f"[HOTKEY_UTILS] Scan code {scan_code} mapped to unicode char: '{name}'")
+            return name
 
+        if logger: logger.debug(f"[HOTKEY_UTILS] ToUnicodeEx failed for scan_code {scan_code}, VK={vk}")
         return None
-    except Exception:
+    except Exception as e:
+        if logger: logger.error(f"[HOTKEY_UTILS] Exception in scan_code_to_us_name: {e}")
         return None
 
 
-def hotkey_to_english(hotkey_str):
+def hotkey_to_english(hotkey_str, logger=None):
     """Преобразует строку хоткея так, чтобы все клавиши отображались в английской раскладке."""
     if not hotkey_str:
         return hotkey_str
 
+    if logger: logger.debug(f"[HOTKEY_UTILS] Converting hotkey to English: '{hotkey_str}'")
     parts = hotkey_str.split('+')
     converted_parts = []
 
@@ -92,36 +112,47 @@ def hotkey_to_english(hotkey_str):
         }
         if part_lower in known_names:
             converted_parts.append(part_lower)
+            if logger: logger.debug(f"[HOTKEY_UTILS] Part '{part}' is a known name, kept as is.")
             continue
 
         if part_lower.startswith('f') and part_lower[1:].isdigit():
             converted_parts.append(part_lower)
+            if logger: logger.debug(f"[HOTKEY_UTILS] Part '{part}' is a function key, kept as is.")
             continue
 
         if len(part_lower) == 1 and part_lower.isascii():
             converted_parts.append(part_lower)
+            if logger: logger.debug(f"[HOTKEY_UTILS] Part '{part}' is a single ASCII char, kept as is.")
             continue
 
         try:
-            scan_code = keyboard.key_to_scan_codes(part_lower)
-            if scan_code:
-                us_name = scan_code_to_us_name(scan_code[0])
+            scan_codes = keyboard.key_to_scan_codes(part_lower)
+            if scan_codes:
+                us_name = scan_code_to_us_name(scan_codes[0], logger)
                 if us_name:
                     converted_parts.append(us_name)
+                    if logger: logger.debug(f"[HOTKEY_UTILS] Part '{part}' converted via scan code to '{us_name}'")
                     continue
-        except Exception:
-            pass
+                else:
+                    if logger: logger.warning(f"[HOTKEY_UTILS] Could not map scan code for '{part}'")
+        except Exception as e:
+            if logger: logger.warning(f"[HOTKEY_UTILS] Failed to get scan codes for '{part}': {e}")
 
         converted_parts.append(part_lower)
+        if logger: logger.debug(f"[HOTKEY_UTILS] Part '{part}' could not be converted, kept original.")
 
-    return '+'.join(converted_parts)
+    result = '+'.join(converted_parts)
+    if logger: logger.debug(f"[HOTKEY_UTILS] Final converted hotkey: '{result}'")
+    return result
 
 
-def contains_forbidden_keys(hotkey_str):
+def contains_forbidden_keys(hotkey_str, logger=None):
     """Проверяет, содержит ли комбинация запрещённые клавиши Space или Win."""
     if not hotkey_str:
         return False
 
+    if logger: logger.debug(f"[HOTKEY_UTILS] Checking for forbidden keys in: '{hotkey_str}'")
+    
     forbidden_names = {
         'space', 'spacebar', ' ',
         'win', 'windows', 'left windows', 'right windows',
@@ -132,15 +163,18 @@ def contains_forbidden_keys(hotkey_str):
     for part in hotkey_str.split('+'):
         part_lower = part.strip().lower()
         if part_lower in forbidden_names:
+            if logger: logger.warning(f"[HOTKEY_UTILS] Forbidden key found by name: '{part_lower}'")
             return True
 
         try:
             scan_codes = keyboard.key_to_scan_codes(part_lower)
             for sc in scan_codes:
-                us_name = scan_code_to_us_name(sc)
+                us_name = scan_code_to_us_name(sc, logger)
                 if us_name and us_name.lower() in forbidden_names:
+                    if logger: logger.warning(f"[HOTKEY_UTILS] Forbidden key found by scan code: '{us_name}'")
                     return True
         except Exception:
             pass
 
+    if logger: logger.debug("[HOTKEY_UTILS] No forbidden keys found.")
     return False

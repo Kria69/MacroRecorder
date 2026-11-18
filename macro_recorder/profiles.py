@@ -10,6 +10,7 @@ from .i18n import tr
 def save_profile(profile_dir, pid, profile_data, logger):
     """Сохраняет профиль в сжатый .json.gz."""
     fname = os.path.join(profile_dir, f"profile_{pid}.json.gz")
+    logger.debug(f"[PROFILES] Saving profile {pid} to {fname}")
     try:
         payload = json.dumps(profile_data, ensure_ascii=False)
         with gzip.open(fname, 'wt', encoding='utf-8') as f:
@@ -21,12 +22,14 @@ def save_profile(profile_dir, pid, profile_data, logger):
 
 def load_all_profiles(profile_dir, default_name_factory, logger):
     """Загружает профили 1..10 из .json.gz / .json."""
+    logger.debug(f"[PROFILES] Loading all profiles from {profile_dir}")
     profiles = {}
     for i in range(1, 11):
         fname_gz = os.path.join(profile_dir, f"profile_{i}.json.gz")
         fname_json = os.path.join(profile_dir, f"profile_{i}.json")
         fname = fname_gz if os.path.exists(fname_gz) else (fname_json if os.path.exists(fname_json) else None)
         if fname:
+            logger.debug(f"[PROFILES] Found file for profile {i}: {os.path.basename(fname)}")
             try:
                 if fname.endswith('.gz'):
                     with gzip.open(fname, 'rt', encoding='utf-8') as f:
@@ -49,6 +52,7 @@ def load_all_profiles(profile_dir, default_name_factory, logger):
 
 def export_profile(path, profile_data, logger):
     """Экспортирует профиль в файл (.json или .json.gz по расширению)."""
+    logger.debug(f"[PROFILES] Exporting profile to {path}")
     try:
         payload = json.dumps(profile_data, ensure_ascii=False, indent=2)
         if path.lower().endswith(".gz"):
@@ -69,6 +73,7 @@ def read_imported_profile(path, logger):
     Возвращает (new_name_or_None, events_list) либо выбрасывает ValueError
     при неверном формате.
     """
+    logger.debug(f"[PROFILES] Reading imported profile from {path}")
     try:
         if path.lower().endswith('.gz'):
             with gzip.open(path, 'rt', encoding='utf-8') as f:
