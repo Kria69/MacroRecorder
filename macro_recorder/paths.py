@@ -18,7 +18,7 @@ def setup_logging(log_dir):
     log_file = os.path.join(log_dir, f"macro_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
     logger = logging.getLogger("MacroRecorder")
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     if logger.handlers:
         logger.handlers.clear()
 

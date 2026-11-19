@@ -4,17 +4,18 @@ import os
 import sys
 import ctypes
 import glob
+import shutil
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFrame, QCheckBox,
-    QGridLayout, QTextEdit,
+    QGridLayout, QTextEdit, QFileDialog,
 )
 
 from ..i18n import tr
 from ..theme import THEMES, CURRENT_THEME, STYLES
 from .. import layout_utils
-from .common import ConfirmClearDialog
+from .common import ConfirmClearDialog, WarningDialog
 
 
 def is_admin():
@@ -318,9 +319,9 @@ class AdminPanelDialog(QDialog):
         layout.addLayout(info_layout)
         layout.addStretch()
 
-        # --- Нижние кнопки: Логи + Очистить логи ---
+        # --- Нижние кнопки: Логи / Скачать лог / Очистить логи ---
         bottom_buttons_row = QWidget()
-        bottom_buttons_layout = QHBoxLayout(bottom_buttons_row)
+        bottom_buttons_layout = QGridLayout(bottom_buttons_row)
         bottom_buttons_layout.setContentsMargins(0, 0, 0, 0)
         bottom_buttons_layout.setSpacing(10)
 
@@ -328,13 +329,19 @@ class AdminPanelDialog(QDialog):
         self.btn_logs.setFixedHeight(36)
         self.btn_logs.setStyleSheet(STYLES["BTN_DARK"])
         self.btn_logs.clicked.connect(self._on_logs_clicked)
-        bottom_buttons_layout.addWidget(self.btn_logs)
+        bottom_buttons_layout.addWidget(self.btn_logs, 0, 0)
+
+        self.btn_download_log = QPushButton(tr("admin_download_log_btn"))
+        self.btn_download_log.setFixedHeight(36)
+        self.btn_download_log.setStyleSheet(STYLES["BTN_DARK"])
+        self.btn_download_log.clicked.connect(self._on_download_log_clicked)
+        bottom_buttons_layout.addWidget(self.btn_download_log, 0, 1)
 
         self.btn_clear_logs = QPushButton(tr("admin_clear_logs_btn"))
         self.btn_clear_logs.setFixedHeight(36)
         self.btn_clear_logs.setStyleSheet(STYLES["BTN_RED"])
         self.btn_clear_logs.clicked.connect(self._on_clear_logs_clicked)
-        bottom_buttons_layout.addWidget(self.btn_clear_logs)
+        bottom_buttons_layout.addWidget(self.btn_clear_logs, 1, 0, 1, 2)
 
         layout.addWidget(bottom_buttons_row)
 
@@ -388,6 +395,43 @@ class AdminPanelDialog(QDialog):
     def _on_logs_clicked(self):
         dlg = LogsDialog(self._log_dir, self)
         dlg.exec()
+
+    def _latest_log_path(self):
+        """Возвращает путь к последнему по времени логу в папке logs."""
+        if not self._log_dir or not os.path.isdir(self._log_dir):
+            return None
+        log_files = glob.glob(os.path.join(self._log_dir, "*.log"))
+        if not log_files:
+            return None
+        return max(log_files, key=lambda p: (os.path.getmtime(p), os.path.basename(p)))
+
+    def _on_download_log_clicked(self):
+        source = self._latest_log_path()
+        if not source:
+            WarningDialog(tr("admin_download_log_missing"), self).exec()
+            return
+
+        suggested = os.path.basename(source)
+        target, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("admin_download_log_title"),
+            os.path.join(os.path.expanduser("~"), suggested),
+            "Log files (*.log);;All files (*)",
+        )
+        if not target:
+            return
+
+        try:
+            shutil.copyfile(source, target)
+        except Exception as e:
+            WarningDialog(f"{tr('admin_download_log_failed')} {e}", self).exec()
+            return
+
+        self._log_exported_path = target
+
+    def exported_log_path(self):
+        """Путь, в который пользователь сохранил лог (или None)."""
+        return getattr(self, "_log_exported_path", None)
 
     def _on_clear_logs_clicked(self):
         dlg = ConfirmClearLogsDialog(self)
