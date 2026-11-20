@@ -1,6 +1,7 @@
 """Главное окно приложения Macro Recorder Pro."""
 
 import os
+import sys
 import json
 import time
 import math
@@ -22,6 +23,7 @@ import mouse
 import keyboard
 
 from . import theme as theme_mod
+from . import mouse_input
 from .theme import THEMES, STYLES, build_styles
 from . import i18n as i18n_mod
 from .i18n import tr
@@ -181,6 +183,8 @@ class MacroApp(QMainWindow):
         self.is_paused_playing = False
         self.debug_mode = False
         self.events = []
+        self.recording_mouse_pressed = False
+        self.recording_mouse_button = None
         self.start_time = 0
         self.pause_start_time = 0
         self.total_paused_duration = 0
@@ -188,6 +192,8 @@ class MacroApp(QMainWindow):
         self.playback_start_time = time.time()
         self.playback_paused_duration = 0
         self.playback_total_duration = 0
+        self._timer_resolution_raised = False
+        self._sendinput_warned = False
 
         self._playback_launching = False
         self._playback_stop_requested = False
@@ -1060,7 +1066,8 @@ class MacroApp(QMainWindow):
 
     def _playback_worker(self):
         self.logger.debug("[WORKER] Playback worker started.")
-        
+        self._timer_resolution_raised = False
+        self._sendinput_warned = False
         try:
             self.logger.debug("[WORKER] Sleeping 100ms for hook release.")
             time.sleep(0.1)
@@ -1094,12 +1101,18 @@ class MacroApp(QMainWindow):
             self.bridge.log_signal.emit(tr("log_playback_started"))
             
             self.logger.info("[WORKER] Starting playback_loop.")
+            # По умолчанию таймер Windows имеет разрешение ~15.6 мс: все события
+            # с меньшим интервалом выполняются одной пачкой, из-за чего движения
+            # курсора выглядят рваными. Повышаем точность до 1 мс на время
+            # воспроизведения.
+            self._raise_timer_resolution()
             self.playback_loop()
             self.logger.debug("[WORKER] playback_loop finished.")
             
         except Exception as e:
             self.logger.error(f"[WORKER] Exception in worker: {e}", exc_info=True)
         finally:
+            self._restore_timer_resolution()
             self._playback_launching = False
             self.logger.debug("[WORKER] Worker finished, emitting playback_finished_signal.")
             self.bridge.playback_finished_signal.emit()
@@ -1220,7 +1233,11 @@ class MacroApp(QMainWindow):
         
         current_time = time.time() - self.start_time - self.total_paused_duration
         if isinstance(e, mouse.MoveEvent):
-            self.events.append({"time": current_time, "type": "mouse_move", "data": {"x": e.x, "y": e.y}})
+            # During drag (mouse button pressed), record move with button state
+            if self.recording_mouse_pressed:
+                self.events.append({"time": current_time, "type": "mouse_move", "data": {"x": e.x, "y": e.y, "button": self.recording_mouse_button, "pressed": True}})
+            else:
+                self.events.append({"time": current_time, "type": "mouse_move", "data": {"x": e.x, "y": e.y}})
             if self.debug_mode:
                 self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE MOVE -> ({e.x}, {e.y})")
             self.logger.debug(f"[HOOK] Mouse move recorded at ({e.x}, {e.y})")
@@ -1230,10 +1247,19 @@ class MacroApp(QMainWindow):
                 x, y = mouse.get_position()
             except Exception:
                 x, y = 0, 0
-            self.events.append({"time": current_time, "type": "mouse_click", "data": {"x": x, "y": y, "button": e.button, "pressed": pressed}})
-            if self.debug_mode:
-                self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE {'PRESS' if pressed else 'RELEASE'} -> {e.button} at ({x}, {y})")
-            self.logger.debug(f"[HOOK] Mouse click recorded: button={e.button}, pressed={pressed} at ({x}, {y})")
+            if pressed:
+                self.recording_mouse_button = e.button
+                self.recording_mouse_pressed = True
+                self.events.append({"time": current_time, "type": "mouse_click", "data": {"x": x, "y": y, "button": e.button, "pressed": True}})
+                if self.debug_mode:
+                    self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE PRESS -> {e.button} at ({x}, {y})")
+                self.logger.debug(f"[HOOK] Mouse press recorded: {e.button} at ({x}, {y})")
+            else:
+                self.recording_mouse_pressed = False
+                self.events.append({"time": current_time, "type": "mouse_click", "data": {"x": x, "y": y, "button": e.button, "pressed": False}})
+                if self.debug_mode:
+                    self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE RELEASE -> {e.button} at ({x}, {y})")
+                self.logger.debug(f"[HOOK] Mouse release recorded: {e.button} at ({x}, {y})")
         elif isinstance(e, mouse.WheelEvent):
             try:
                 x, y = mouse.get_position()
@@ -1243,6 +1269,27 @@ class MacroApp(QMainWindow):
             if self.debug_mode:
                 self.bridge.log_signal.emit(f"DEBUG RECORD: MOUSE SCROLL -> dy={e.delta} at ({x}, {y})")
             self.logger.debug(f"[HOOK] Mouse scroll recorded: dy={e.delta} at ({x}, {y})")
+
+    def _raise_timer_resolution(self):
+        if not sys.platform.startswith("win") or self._timer_resolution_raised:
+            return
+        try:
+            ctypes.windll.winmm.timeBeginPeriod(1)
+            self._timer_resolution_raised = True
+            self.logger.debug("[PLAYBACK] Timer resolution raised to 1 ms.")
+        except Exception as e:
+            self.logger.warning(f"[PLAYBACK] timeBeginPeriod failed: {e}")
+
+    def _restore_timer_resolution(self):
+        if not self._timer_resolution_raised:
+            return
+        try:
+            ctypes.windll.winmm.timeEndPeriod(1)
+            self.logger.debug("[PLAYBACK] Timer resolution restored.")
+        except Exception as e:
+            self.logger.warning(f"[PLAYBACK] timeEndPeriod failed: {e}")
+        finally:
+            self._timer_resolution_raised = False
 
     def _smooth_move_winapi(self, x1, y1, x2, y2):
         dist = math.hypot(x2 - x1, y2 - y1)
@@ -1257,8 +1304,14 @@ class MacroApp(QMainWindow):
             ratio = s / steps
             cx = int(x1 + (x2 - x1) * ratio)
             cy = int(y1 + (y2 - y1) * ratio)
-            ctypes.windll.user32.SetCursorPos(cx, cy)
-            time.sleep(0.0005)
+            sent, err = mouse_input.move(cx, cy)
+            if sent == 0 and not self._sendinput_warned:
+                # SendInput отклоняется, когда ввод заблокирован другим процессом
+                # или окно станции не в интерактивном режиме.
+                self._sendinput_warned = True
+                self.logger.warning(f"[PLAYBACK] SendInput(move) rejected, GetLastError={err}")
+            if steps > 1:
+                time.sleep(0.001)
 
     def playback_loop(self):
         start = time.time()
@@ -1316,9 +1369,12 @@ class MacroApp(QMainWindow):
                 if etype == 'mouse_move':
                     x, y = data['x'], data['y']
                     if prev_x is not None:
+                        # При перетаскивании (зажатой кнопке) проходим путь мелкими
+                        # шагами той же частотой, что и записанные точки: Paint получает
+                        # непрерывный поток WM_MOUSEMOVE с MK_LBUTTON и рисует линию.
                         self._smooth_move_winapi(prev_x, prev_y, x, y)
                     else:
-                        mouse.move(x, y)
+                        mouse_input.move(x, y)
                     prev_x, prev_y = x, y
                     if self.debug_mode:
                         self.bridge.log_signal.emit(f"DEBUG PLAYBACK: MOUSE MOVE -> ({x}, {y})")
@@ -1383,20 +1439,28 @@ class MacroApp(QMainWindow):
                             
                 elif etype == 'mouse_click':
                     x, y = data['x'], data['y']
-                    mouse.move(x, y)
+                    if prev_x is not None and (prev_x, prev_y) != (x, y):
+                        self._smooth_move_winapi(prev_x, prev_y, x, y)
+                    mouse_input.move(x, y)
                     prev_x, prev_y = x, y
                     if data['pressed']:
-                        mouse.press(data['button'])
+                        try:
+                            mouse_input.press(data['button'])
+                        except Exception:
+                            pass
                     else:
-                        mouse.release(data['button'])
+                        try:
+                            mouse_input.release(data['button'])
+                        except Exception:
+                            pass
                     if self.debug_mode:
                         self.bridge.log_signal.emit(f"DEBUG PLAYBACK: MOUSE {'PRESS' if data['pressed'] else 'RELEASE'} -> {data['button']} at ({x}, {y})")
                         
                 elif etype == 'mouse_scroll':
                     x, y = data['x'], data['y']
-                    mouse.move(x, y)
+                    mouse_input.move(x, y)
                     prev_x, prev_y = x, y
-                    mouse.wheel(data['dy'])
+                    mouse_input.scroll(data['dy'])
                     if self.debug_mode:
                         self.bridge.log_signal.emit(f"DEBUG PLAYBACK: MOUSE SCROLL -> dy={data['dy']} at ({x}, {y})")
                         
